@@ -1,0 +1,166 @@
+'''
+ Back up utility for vSphere settings and data
+
+ Supported products are
+ 1. vCenter Server 2.5.x, 4.0.x
+  a. data backup is supported only for SQL Server Express
+ 2. VUM
+  a. data backup is supported only for SQL Server Express
+ 3. VCO
+  a. data backup is supported only for SQL Server Express
+
+ VUM and VCO solutions must be installed on the same machine as vCenter Server
+'''
+
+import re, sys, os, subprocess
+import vpx.vcenterbackup, vum.vumbackup, vco.vcobackup
+from scripterror import *
+import utility
+
+ROOT_DIR = sys.path[0]
+LOG_FILENAME = ROOT_DIR + '\\logs\\backup.log'
+
+logger = None
+
+########################################################################
+#
+# Check backup script prerequisite
+#  a. Supported vCenter Server version
+#  b. Supported VUM version
+#  c. Supported VCO version
+#
+########################################################################
+def check_prerequisite():
+   # check prerequisites
+   logger.info('Checking prerequisites...')
+   print
+   # check vCenter Server
+   vcenter_result = vpx.vcenterbackup.check_prerequisite(logger)
+   if vcenter_result == 0:
+      while True:
+         logger.warning('vCenter Server does not satisfy migration prerequisite')
+         continueBackup = raw_input('    Do you want to continue backup...? y|n: ')
+         if (continueBackup == 'y' or continueBackup == 'Y'):
+            break
+         elif(continueBackup == 'n' or continueBackup == 'N'):
+            exit(1)
+   else:
+      logger.info('vCenter Server installation satisfies migration prerequisite')
+   print
+
+   # check vum
+   vum_result = vum.vumbackup.check_prerequisite(logger)
+   if vum_result == 0:
+      while True:
+         logger.warning('VMware Update Manager does not satisfy migration prerequisite')
+         continueBackup = raw_input('    Do you want to continue backup...? y|n: ')
+         if (continueBackup == 'y' or continueBackup == 'Y'):
+            break
+         elif(continueBackup == 'n' or continueBackup == 'N'):
+            exit(1)
+   else:
+      logger.info('VMware Update Manager installation satisfies migration prerequisite')
+   print
+
+   # check vco
+   vco_result = vco.vcobackup.check_prerequisite(logger)
+   if vco_result == 0:
+      logger.warning('vCO does not satisfy migration prerequisite')
+   else:
+      logger.info('vCO installation satisfies migration prerequisite')
+   print
+
+   return (vcenter_result, vum_result, vco_result)
+
+########################################################################
+#
+# Back up VC, VUM & VCO if migration prerequisites met
+#
+########################################################################
+def backup(dir, vcenter, um, orchestrator):
+   logger.info('Backup directory is %s' % (dir))
+
+   if os.path.exists(dir):
+      raise ScriptError(
+         'Backup directory %s already exists.  Please remove before proceeding.' % (dir))
+
+   if not utility.set_dir_permissions(dir):
+      raise ScriptError('[%s] does not have write permissions' % (dir))
+
+   print
+   logger.info('Backing up...')
+   print
+   # back up vCenter Server
+   if vcenter == 1:
+      vcdatadir = dir + '\\vc'
+      os.makedirs(vcdatadir)
+      vpx.vcenterbackup.backup_vcenter(vcdatadir)
+   else:
+      logger.warning('Could not back up vCenter Server data.')
+
+   # back up vum
+   if um == 1:
+      vumdatadir = dir + '\\vum'
+      os.makedirs(vumdatadir)
+      vum.vumbackup.backup_vum(vumdatadir)
+   else:
+      logger.warning('Could not back up VMware vCenter Update Manager data.')
+
+   if orchestrator == 1:
+      vcodatadir = dir + '\\vco'
+      os.makedirs(vcodatadir)
+      vco.vcobackup.backup_vco(vcodatadir)
+   else:
+      logger.warning('Could not back up vCO data.')
+
+########################################################################
+#
+# main
+#
+########################################################################
+if __name__ == "__main__":
+
+   log_dir = sys.path[0] + '\\logs'
+   if not utility.set_dir_permissions(log_dir):
+      raise ScriptError('Unable to create [%s] directory with write permissions' % (dir))
+
+   # configure logger
+   logger = utility.configure_logger(LOG_FILENAME , 'backup')
+
+   try:
+
+      # start
+      logger.info('Starting vSphere configuration backup script...')
+      print
+
+      # check prerequisite
+      backup_vcenter, backup_vum, backup_vco = check_prerequisite()
+      if backup_vcenter == 0 and backup_vum == 0 and backup_vco == 0 :
+         print
+         raise ScriptError('vCenter Server, VMware Update Manager or VCO' +
+            ' did not satisfy migration prerequisites')
+
+      # backup
+      backup_dir = sys.path[0] + '\\data'
+
+      backup(backup_dir, backup_vcenter, backup_vum, backup_vco)
+
+      print
+      logger.info('vSphere configuration backup script completed successfully')
+      print
+   except ScriptError as ex:
+      if (logger):
+         logger.error('Error: %s' % (ex.value))
+         logger.error('Exiting...')
+      else:
+         print 'Error: %s' % (ex.value)
+         print 'Exiting...'
+      exit(1)
+   except Exception as ex:
+      if (logger):
+         logger.error('Error: %s' % ex)
+         logger.error('Exiting...')
+      else:
+         print 'Error: %s' % (ex)
+         print 'Exiting...'
+      exit(1)
